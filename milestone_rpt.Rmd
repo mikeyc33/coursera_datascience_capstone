@@ -1,0 +1,175 @@
+---
+title: "Data Science Capstone Project Milestone Report"
+author: "Mike Cui"
+date: "August 29, 2016"
+output: html_document
+---
+
+# Milestone Report
+
+In this report, we'll conduct exploratory analyses on the blogs, news, and twitter text datasets. The goal of the milestone report is to:
+  - Construct a text corpus using the three text datasets
+  - Summarize the features of the data
+  - Create simple visualizations to understand patterns within the data
+  - Outline a plan for creating a predictive text model, and incorporating the model into a Shiny application
+  
+  
+## Step 1: Reading in raw data and generating summary statistics
+
+The code below reads in the three text datasets using the "readLines" functions. After reading in the data, we'll calculate how many lines of text are in each dataset. In addition, we'll also calculate summary statistics on the number of characters per line in the datasets.
+```{r echo = F, message=FALSE, warning=FALSE}
+library(tm)
+library(dplyr)
+library(ggplot2)
+library(SnowballC)
+library(knitr)
+setwd('/Users/mikecui/Documents/coursera/data_science_capstone/')
+```
+
+```{r, message=FALSE, warning=FALSE}
+data_path <- "data/final/en_US"
+files <- list.files(data_path, pattern = ".txt")
+
+#read in each text dataset, create a list to store datasets
+data1 <- lapply(files, function(x){
+  text <- readLines(paste0(data_path, "/", x))
+})
+
+names(data1) <- c("blogs", "news", "twitter")
+
+#count no. of lines in each text file
+print(lapply(data1, function(x) paste0("The number of lines for the dataset ", names(x), " = ", length(x))))
+
+#summary statistics for no. of characters within each text line
+print(lapply(data1, function(x) summary(nchar(x))))
+```
+
+From the first output above, we see that the blogs dataset has roughly 900k records, the news dataset has roughly 1 million records, and the twitter dataset has roughly 2.4 million records. From the second output above, we see that the mean no. of characters per line are 231, 202, and 69 for the datasets blogs, news, and twitter, respectively. In addition, we see that maximum number of characters in a line = 11,380 characters, which belongs to the "news" dataset. Lastly, we see that the maximum number of characters per line in the "twitter" dataset = 140, which makes sense given that tweets are limited to 140 characters.
+
+## Step 2: Create Corpus/Data Cleaning
+
+In order to understand the features of our text data, we should create a text "corpus" using the "tm" package. A corpus is a collection of text documents (in this case the blogs, news, and twitter datasets), and can be interpreted as a database for texts. Let's build a corpus below using the "Corpus" function from the tm package. Because creating a text corpus is computationally intensive, let's create the Corpus using a 5% random sample from the main text documents. This will still allow us analyze our data, and arrive at reasonable conclusions, without facing a computational barrier.
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(4343)
+data1 <- lapply(data1, function(x) sample(x, round(length(x)/20)))
+corpus <- Corpus(VectorSource(data1))   
+```
+
+Now that we've created a text corpus, let's perform a few data cleaning tasks to:
+
+  1. convert all text to lowercase
+  2. remove punctuations
+  3. remove numbers
+
+These data cleaning tasks will make it easier to analyze our data. We'll use the tm_map function to perform these data cleaning tasks.
+
+```{r, message=FALSE, warning=FALSE}
+#convert all text to lower case
+corpus <- tm_map(corpus, tolower)
+
+#remove punctuations
+corpus <- tm_map(corpus, removePunctuation)
+
+#remove numbers
+corpus <- tm_map(corpus, removeNumbers)
+```
+
+After data cleaning, we should "stem" our Corpus. Stemming is helpful in removing word suffixes to reduce the complexity of the data.
+
+```{r, message=FALSE, warning=FALSE}
+s_corpus <- tm_map(corpus, stemDocument)
+```
+
+## Step 3: Explore Data Features
+
+Using our stemmed corpus from Step 2, we'll create a term-document matrix (TDM). This will help us identify the frequency of specific words. To do this, we'll use the TermDocumentMatrix function. Before creating the TDM, we need to convert our stemmed corpus into a plain text format
+
+```{r, message=FALSE, warning=FALSE}
+s_corpus <- tm_map(s_corpus, PlainTextDocument) 
+tdm1 <- TermDocumentMatrix(s_corpus)
+```
+
+Using our TDM, let's see which terms commonly occur. Let's print out:
+
+  1. Terms which appear at least 10,000 times
+  2. The top 20 most freqently appearing terms
+  
+```{r, message=FALSE, warning=FALSE}
+#print out terms which occur at least 10,000 times
+print(findFreqTerms(tdm1, 10000))
+
+#print top 20 terms
+top20 <- sort(rowSums(as.matrix(tdm1)), decreasing=TRUE)[1:20]
+print(top20)
+```
+
+The outputs above show that our corpus (constructed from a 5% random sample of the data) has 37 terms which appear at least 10,000 times. In addition, the most commonly occuring English word in our corpus is "THE". Below, we can produce a graphical representation of our top20 most commonly occurring words.
+
+```{r, message=FALSE, warning=FALSE}
+top20_df <- as.data.frame(top20)
+plot_df <- data.frame(word = toupper(row.names(top20_df)), count = top20_df$top20)
+
+ggplot(data = plot_df, aes(word, count, fill = word)) +
+  geom_bar(stat = "identity") +
+  xlab("Freqency of term") +
+  ylab("Word") +
+  ggtitle("Freqeuncy of Most Commonly Occuring Words in Corpus") +
+  theme(legend.position="none") +
+  coord_flip()
+```
+
+The outputs above in Step 3 are helpful, but you'll notice it only contains information on the full corpus. What if we were interested in exploring the most commonly occuring word for each document? This may be helpful in seeing if patterns in the data vary across documents (i.e. the most common occurring terms in the "blogs" dataset are very different than the most commonly occurring terms in the "twitter" dataset). The output below visualizes the 20 most commonly occurring terms for each document.
+
+```{r, message=FALSE, warning=FALSE}
+names(s_corpus) <- c("blogs", "news", "twitter")
+
+for (i in 1:length(data1)){
+  if (i==1) {file <- "blogs"}
+  if (i==2) {file <- "news"}
+  if (i==3) {file <- "twitter"}
+  
+  corp_temp <-  subset(s_corpus, names(s_corpus) == file)
+  tdm_temp <- as.matrix(TermDocumentMatrix(tm_map(corp_temp, PlainTextDocument)))
+  top20_temp <- as.data.frame(sort(rowSums(tdm_temp), decreasing=TRUE)[1:20])
+  assign(paste0("top20_", file), 
+         data.frame(word = toupper(row.names(top20_temp)), 
+                    count = top20_temp[, 1])
+         )
+}
+
+top20_bydoc <- rbind(mutate(top20_blogs, doc = "Blogs"),
+                     mutate(top20_news, doc = "News"),
+                     mutate(top20_twitter, doc = "Twitter"))
+
+ggplot(data = top20_bydoc, aes(tolower(word), count, fill = word)) +
+  geom_bar(stat = "identity") +
+  xlab("Freqency of term") +
+  ylab("Word") +
+  ggtitle("Freqeuncy of Most Commonly Occuring Words by Document") +
+  facet_wrap(~ doc, nrow = 2) +
+  theme(legend.position="none") +
+  coord_flip()
+```
+
+The results above show that there is variation in word frequency across the three documents. Notably, words which occur frequently in one document do not make the top 20 list other documents. For example, the word "Your" makes the top 20 list in twitter dataset, but does not appear in the top list in either the news or blogs datasets.
+
+#Step 4: Strategy for creating a Prediction Algorithm and a Shiny app
+
+There are many ways to create a text prediction algorithm via a Shiny application. My proposal is to create a Shiny application with a "sidebarPanel" for user input, and a "mainPanel" which displays the likelihood of the next word given the user input.
+
+One simple way to execute this algorithm is determine "term correlations" based on the user's input text. For example, if the user types the word "hello", we could determine all terms with an extremely high correlation to this word (i.e. correlation >= 0.99), and sort it by descending correlation. An example is provided below:
+
+```{r, message=FALSE, warning=FALSE}
+corr_terms <- findAssocs(tdm1, "hello", corlimit=0.95)
+print(corr_terms$hello[1:20])
+```
+
+However, the strategy above is too simplistic and has potential problems:
+
+  - multiple words may be equally correlated to the input word
+  - there may be no words with a correlation >= to the specified corlimit
+  
+A better approach would be to create an n-gram model. N-grams are a continuous sequence of words, where n = the size of the sequence. To create n-grams in R, we can use the "RWeka" package in conjunction with the "tm" package. 
+
+One strategy is to generate n-grams as the user types in terms. For example, if the user types in "Hello my" into the text field, we could create trigrams from our Corpus. Depending on which trigram appears the most often with the words "Hello my", that would predict the user's next word.
