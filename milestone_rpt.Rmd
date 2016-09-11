@@ -88,6 +88,9 @@ Using our stemmed corpus from Step 2, we'll create a term-document matrix (TDM).
 ```{r, message=FALSE, warning=FALSE}
 s_corpus <- tm_map(s_corpus, PlainTextDocument) 
 tdm1 <- TermDocumentMatrix(s_corpus)
+
+#save term document matrix on disc
+write.csv(as.matrix(tdm1), 'data/Term Document Matrix.csv', row.names = F)
 ```
 
 Using our TDM, let's see which terms commonly occur. Let's print out:
